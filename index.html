@@ -168,7 +168,9 @@
         );
         stepDone(3);
 
-        setStatus("Enregistré ! Pense à coller les likes en ligne 4+ dans le fichier brut.", "ok");
+        setStatus("Enregistré ! Synchronisation du CRM en cours...", "loading");
+        await fetch("https://script.google.com/macros/s/AKfycbwSn6PL1HMy9LAc-hvpEt7dXUDznXcqiyXtgkQ4so938phYCwOdpkZoN2fEVeVhY_vo/exec", { mode: "no-cors" });
+        setStatus("Enregistré et CRM synchronisé !", "ok");
         document.getElementById("post-text").value = "";
         document.getElementById("url-post").value = "";
         document.getElementById("date-post").value = new Date().toISOString().split("T")[0];
