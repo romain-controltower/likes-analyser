@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analyse Likes LinkedIn</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
+    label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; margin-top: 16px; }
+    input, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+    textarea { min-height: 120px; resize: vertical; }
+    button { margin-top: 16px; padding: 10px 20px; background: #0070f3; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { margin-top: 12px; padding: 10px; border-radius: 6px; font-size: 13px; display: none; }
+    .ok { background: #d4edda; color: #155724; display: block; }
+    .err { background: #f8d7da; color: #721c24; display: block; }
+    .loading { background: #e2e3e5; color: #383d41; display: block; }
+    .badge { display: inline-block; background: #e3f2fd; color: #0c447c; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h2>Analyse Likes LinkedIn</h2>
+
+  <label>Date du post</label>
+  <input type="date" id="date-post">
+
+  <label>URL du post LinkedIn</label>
+  <input type="text" id="url-post" placeholder="https://www.linkedin.com/feed/update/...">
+
+  <label>Texte du post</label>
+  <textarea id="post-text" placeholder="Colle le texte du post LinkedIn ici..."></textarea>
+
+  <button onclick="analyserPost()" id="btn">Analyser et enregistrer</button>
+  <div id="theme-result"></div>
+  <div id="status" class="status"></div>
+
+  <script>
+    const GEMINI_KEY = "AIzaSyAQ.Ab8RN6IPkQVBNH8dneWPrJQnJOWQjy__zUKqT5yp6y35opD8PA";
+    const SHEET_ID = "1k5wdO6C0mxYfEcJZWaZlPDKgiledHW7QZ0a3PzecijM";
+    const CLIENT_ID = "181703028018-q3rm07plk5vdjj68md5iorosqmi2u31c.apps.googleusercontent.com";
+    const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+    let accessToken = null;
+
+    document.getElementById("date-post").value = new Date().toISOString().split("T")[0];
+
+    function setStatus(msg, type) {
+      const el = document.getElementById("status");
+      el.className = "status " + type;
+      el.textContent = msg;
+    }
+
+    async function getToken() {
+      return new Promise((resolve, reject) => {
+        if (accessToken) { resolve(accessToken); return; }
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: CLIENT_ID,
+          scope: SCOPES,
+          callback: (resp) => {
+            if (resp.error) { reject(resp.error); return; }
+            accessToken = resp.access_token;
+            resolve(accessToken);
+          }
+        });
+        client.requestAccessToken();
+      });
+    }
+
+    function colToLetter(col) {
+      let letter = "";
+      while (col > 0) {
+        let rem = (col - 1) % 26;
+        letter = String.fromCharCode(65 + rem) + letter;
+        col = Math.floor((col - 1) / 26);
+      }
+      return letter;
+    }
+
+    async function analyserPost() {
+      const postText = document.getElementById("post-text").value.trim();
+      const datePost = document.getElementById("date-post").value;
+      const urlPost = document.getElementById("url-post").value.trim();
+
+      if (!postText) { setStatus("Colle le texte du post.", "err"); return; }
+      if (!datePost) { setStatus("Indique la date du post.", "err"); return; }
+
+      document.getElementById("btn").disabled = true;
+      document.getElementById("theme-result").innerHTML = "";
+      setStatus("Analyse du thème en cours...", "loading");
+
+      try {
+        const geminiResp = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: `Tu es un assistant spécialisé dans l'analyse de contenu LinkedIn pour la finance d'entreprise. Finance Control Tower est un SaaS B2B pour la consolidation et le reporting entre ERP et EPM. Réponds UNIQUEMENT avec le thème le plus adapté parmi cette liste fixe, sans aucun autre mot : Qualité de la donnée / Outils & automatisation / Rôle finance & Business Partner / Carrière finance / Management\n\nPost :\n${postText}` }] }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 20 }
+            })
+          }
+        );
+
+        const geminiData = await geminiResp.json();
+        const theme = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "Qualité de la donnée";
+        document.getElementById("theme-result").innerHTML = `<div class="badge">${theme}</div>`;
+        setStatus("Connexion à Google Sheets...", "loading");
+
+        const token = await getToken();
+
+        const getResp = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/brut!1:1`,
+          { headers: { Authorization: "Bearer " + token } }
+        );
+        const getData = await getResp.json();
+        const row1 = getData.values?.[0] || [];
+        const nextCol = row1.length + 1;
+        const colLetter = colToLetter(nextCol);
+        const dateFormatted = new Date(datePost).toLocaleDateString("fr-FR");
+
+        await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/brut!${colLetter}1:${colLetter}3?valueInputOption=USER_ENTERED`,
+          {
+            method: "PUT",
+            headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+            body: JSON.stringify({ values: [[dateFormatted], [urlPost || ""], [theme]] })
+          }
+        );
+
+        setStatus("Enregistré dans Google Sheets !", "ok");
+        document.getElementById("post-text").value = "";
+        document.getElementById("url-post").value = "";
+        document.getElementById("date-post").value = new Date().toISOString().split("T")[0];
+
+      } catch(e) {
+        setStatus("Erreur : " + e.message, "err");
+      }
+
+      document.getElementById("btn").disabled = false;
+    }
+  </script>
+  <script src="https://accounts.google.com/gsi/client"></script>
+</body>
+</html>
