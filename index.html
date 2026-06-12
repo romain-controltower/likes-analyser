@@ -3,17 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Analyse Likes LinkedIn</title>
+  <title>Analyse Post LinkedIn</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: sans-serif; max-width: 650px; margin: 40px auto; padding: 20px; background: #f9f9f9; }
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #f9f9f9; }
     h2 { font-size: 18px; font-weight: 500; margin-bottom: 24px; }
     .card { background: white; border: 1px solid #e5e5e5; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
-    .card h3 { font-size: 14px; font-weight: 500; color: #666; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .card h3 { font-size: 12px; font-weight: 500; color: #666; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.05em; }
     label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; margin-top: 12px; }
     input, textarea { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
-    input:first-of-type { margin-top: 0; }
-    textarea { min-height: 100px; resize: vertical; font-family: sans-serif; }
+    textarea { min-height: 120px; resize: vertical; font-family: sans-serif; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     button { width: 100%; margin-top: 16px; padding: 12px; background: #0070f3; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: 500; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -21,14 +20,16 @@
     .ok { background: #d4edda; color: #155724; display: block; }
     .err { background: #f8d7da; color: #721c24; display: block; }
     .loading { background: #e2e3e5; color: #383d41; display: block; }
-    .badge { display: inline-block; background: #e3f2fd; color: #0c447c; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; margin-top: 10px; }
+    .badge { display: inline-block; background: #e3f2fd; color: #0c447c; padding: 6px 14px; border-radius: 6px; font-size: 14px; font-weight: 500; margin-top: 12px; }
+    .progress { margin: 12px 0; display: none; }
     .step { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #666; margin-bottom: 6px; }
-    .step-num { width: 22px; height: 22px; border-radius: 50%; background: #0070f3; color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; flex-shrink: 0; }
+    .step-num { width: 22px; height: 22px; border-radius: 50%; background: #ccc; color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; flex-shrink: 0; }
+    .step-num.active { background: #0070f3; }
     .step-num.done { background: #28a745; }
   </style>
 </head>
 <body>
-  <h2>Analyse Likes LinkedIn</h2>
+  <h2>Analyse Post LinkedIn</h2>
 
   <div class="card">
     <h3>Infos du post</h3>
@@ -46,17 +47,10 @@
     <textarea id="post-text" placeholder="Colle le texte du post LinkedIn ici..."></textarea>
   </div>
 
-  <div class="card">
-    <h3>Likes du post</h3>
-    <label>Colle ici les réactions copiées depuis LinkedIn</label>
-    <textarea id="likes-text" placeholder="Colle les réactions LinkedIn ici..." style="min-height:120px"></textarea>
-  </div>
-
-  <div id="progress" style="display:none; margin-bottom:16px">
+  <div class="progress" id="progress">
     <div class="step"><div class="step-num" id="s1">1</div> Analyse du thème via Gemini</div>
     <div class="step"><div class="step-num" id="s2">2</div> Connexion à Google Sheets</div>
-    <div class="step"><div class="step-num" id="s3">3</div> Écriture du post (date, URL, thème)</div>
-    <div class="step"><div class="step-num" id="s4">4</div> Écriture des likes</div>
+    <div class="step"><div class="step-num" id="s3">3</div> Enregistrement dans le fichier</div>
   </div>
 
   <div id="theme-result"></div>
@@ -78,9 +72,15 @@
       el.textContent = msg;
     }
 
+    function stepActive(n) {
+      document.getElementById("s" + n).classList.add("active");
+    }
+
     function stepDone(n) {
-      document.getElementById("s" + n).classList.add("done");
-      document.getElementById("s" + n).textContent = "✓";
+      const el = document.getElementById("s" + n);
+      el.classList.remove("active");
+      el.classList.add("done");
+      el.textContent = "✓";
     }
 
     async function getToken() {
@@ -109,44 +109,21 @@
       return letter;
     }
 
-    function extraireLikes(rawText) {
-      const lines = rawText.split(/\n/);
-      const urls = [];
-      const noms = [];
-      const urlsSeen = [];
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        if (/^\d+$/.test(line)) continue;
-        if (line.toLowerCase().includes("réactions")) continue;
-        if (line.toLowerCase().includes("tous les")) continue;
-
-        const nom = line.split("•")[0].trim().replace(/[^\p{L}\s\-\.]/gu, "").trim();
-        if (nom.length > 1) {
-          noms.push(nom);
-        }
-      }
-      return noms;
-    }
-
     async function analyserPost() {
       const postText = document.getElementById("post-text").value.trim();
       const datePost = document.getElementById("date-post").value;
-      const urlPost = document.getElementById("url-post").value.trim();
-      const likesRaw = document.getElementById("likes-text").value.trim();
+      const urlPost  = document.getElementById("url-post").value.trim();
 
       if (!postText) { setStatus("Colle le texte du post.", "err"); return; }
       if (!datePost) { setStatus("Indique la date du post.", "err"); return; }
-      if (!likesRaw) { setStatus("Colle les réactions LinkedIn.", "err"); return; }
 
       document.getElementById("btn").disabled = true;
       document.getElementById("progress").style.display = "block";
       document.getElementById("theme-result").innerHTML = "";
-      setStatus("", "");
 
       try {
-        // Étape 1 — Gemini
+        // Étape 1 — Gemini analyse le thème
+        stepActive(1);
         const geminiResp = await fetch(
           "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY,
           {
@@ -160,10 +137,11 @@
         );
         const geminiData = await geminiResp.json();
         const theme = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "Qualité de la donnée";
-        document.getElementById("theme-result").innerHTML = `<div class="badge">${theme}</div>`;
+        document.getElementById("theme-result").innerHTML = `<div class="badge">Thème détecté : ${theme}</div>`;
         stepDone(1);
 
         // Étape 2 — Auth Google
+        stepActive(2);
         const token = await getToken();
         stepDone(2);
 
@@ -179,6 +157,7 @@
         const dateFormatted = new Date(datePost + "T12:00:00").toLocaleDateString("fr-FR");
 
         // Étape 3 — Écrit date + URL + thème en lignes 1, 2, 3
+        stepActive(3);
         await fetch(
           `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/brut!${colLetter}1:${colLetter}3?valueInputOption=USER_ENTERED`,
           {
@@ -189,27 +168,10 @@
         );
         stepDone(3);
 
-        // Étape 4 — Écrit les noms des likeurs à partir de la ligne 4
-        const noms = extraireLikes(likesRaw);
-        if (noms.length > 0) {
-          const nomValues = noms.map(n => [n]);
-          await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/brut!${colLetter}4:${colLetter}${3 + noms.length}?valueInputOption=USER_ENTERED`,
-            {
-              method: "PUT",
-              headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-              body: JSON.stringify({ values: nomValues })
-            }
-          );
-        }
-        stepDone(4);
-
-        setStatus(`Enregistré ! Thème : ${theme} — ${noms.length} likes extraits`, "ok");
+        setStatus("Enregistré ! Pense à coller les likes en ligne 4+ dans le fichier brut.", "ok");
         document.getElementById("post-text").value = "";
         document.getElementById("url-post").value = "";
-        document.getElementById("likes-text").value = "";
         document.getElementById("date-post").value = new Date().toISOString().split("T")[0];
-        document.getElementById("progress").style.display = "none";
 
       } catch(e) {
         setStatus("Erreur : " + e.message, "err");
